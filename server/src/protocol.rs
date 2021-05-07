@@ -1,4 +1,5 @@
 use tokio_util::codec::Decoder;
+use subslice::SubsliceExt;
 use bytes::{BytesMut, Buf, Bytes};
 
 struct NatsMessageDecoder;
@@ -44,7 +45,7 @@ impl Decoder for NatsMessageDecoder {
                 return Ok(None);
             };
             let mut parts = src[4..line_end].split(|c|c==&b' ');
-            let subject =
+            // let subject =
         }
 
         unimplemented!()
