@@ -1,9 +1,12 @@
 [package]
-name = "server"
+name = "rnats"
 version = "0.1.0"
 authors = ["kaga <zhanghailin1995@gmail.com>"]
 edition = "2018"
 
+[[bin]]
+name = "rnats-server"
+path = "src/bin/server.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -13,3 +16,5 @@ bytes = "1"
 rand = "0"
 subslice = "0.2.2"
 thiserror = "1"
+log = "0.4"
+futures-util = { version = "0.3", features = ["sink", "async-await"] }

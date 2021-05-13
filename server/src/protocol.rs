@@ -1,18 +1,26 @@
-
-use tokio_util::codec::Decoder;
-use subslice::SubsliceExt;
-use bytes::{Buf, Bytes, BytesMut};
 use crate::errors::Error;
-struct NatsMessageDecoder {
+use bytes::{Buf, Bytes, BytesMut};
+use subslice::SubsliceExt;
+use tokio_util::codec::{Decoder, Encoder};
+
+#[derive(Debug)]
+pub struct NatsMessageCodec {
     state: ParseState,
 }
 
-enum ParseState {
+impl NatsMessageCodec {
+    pub fn new() -> NatsMessageCodec {
+        NatsMessageCodec {
+            state: ParseState::OpStart,
+        }
+    }
+}
+#[derive(Debug)]
+pub enum ParseState {
     OpStart,
     OpSub,
     OpPub,
 }
-
 
 // #[derive(Debug, Clone, PartialEq)]
 // pub struct NatsMsg {
@@ -43,25 +51,26 @@ pub enum NatsProtocol {
     Pub(NatsPub),
 }
 
-impl Decoder for NatsMessageDecoder {
+impl Decoder for NatsMessageCodec {
     type Item = NatsProtocol;
     type Error = Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         use ParseState::*;
+        println!("recv msg");
         loop {
             match self.state {
                 OpStart => {
                     if src.starts_with(b"SUB ") {
                         self.state = OpSub;
                         src.advance(4);
-                    } else if src.starts_with(b"PUB "){
+                    } else if src.starts_with(b"PUB ") {
                         self.state = OpPub;
                         src.advance(4);
                     } else {
                         return Ok(None);
                     }
-                },
+                }
                 OpSub => {
                     let line_end = match src.find(b"\r\n") {
                         Some(end) => end,
@@ -69,13 +78,14 @@ impl Decoder for NatsMessageDecoder {
                     };
                     // SUB <subject> <sid>\r\n
                     // SUB <subject> <queue> <sid>
-                    
+
                     let mut parts = src[..line_end].split(|c| c == &b' ');
                     // first arg is always subject
                     let subject =
-                        std::str::from_utf8(parts.next().ok_or_else(|| Error::ProtocolError)?)?.to_string();
-                        let mut queue = Option::<String>::None;
-                        let sid;
+                        std::str::from_utf8(parts.next().ok_or_else(|| Error::ProtocolError)?)?
+                            .to_string();
+                    let mut queue = Option::<String>::None;
+                    let sid;
                     let next_arg = parts.next().ok_or_else(|| Error::ProtocolError)?;
                     if let Some(arg) = parts.next() {
                         queue = Some(std::str::from_utf8(next_arg)?.to_string());
@@ -91,7 +101,7 @@ impl Decoder for NatsMessageDecoder {
                         sid,
                         queue,
                     })));
-                },
+                }
                 OpPub => {
                     // PUB <subject> <len>\r\n<message>\r\n
                     let line_end = if let Some(end) = src.find(b"\r\n") {
@@ -101,9 +111,11 @@ impl Decoder for NatsMessageDecoder {
                     };
                     let mut parts = src[..line_end].split(|c| c == &b' ');
                     let subject =
-                        std::str::from_utf8(parts.next().ok_or_else(|| Error::ProtocolError)?)?.to_string();
-                    let size = std::str::from_utf8(parts.next().ok_or_else(|| Error::ProtocolError)?)?
-                        .parse::<usize>()?;
+                        std::str::from_utf8(parts.next().ok_or_else(|| Error::ProtocolError)?)?
+                            .to_string();
+                    let size =
+                        std::str::from_utf8(parts.next().ok_or_else(|| Error::ProtocolError)?)?
+                            .parse::<usize>()?;
                     if line_end + size + 4 <= src.len() {
                         src.advance(line_end + 2);
                         let message = src.split_to(size);
@@ -115,11 +127,19 @@ impl Decoder for NatsMessageDecoder {
                             payload: message.freeze(),
                         })));
                     } else {
-                        return Ok(None)
+                        return Ok(None);
                     }
-                },
+                }
             }
         }
+    }
+}
+
+impl Encoder<String> for NatsMessageCodec {
+    type Error = Error;
+
+    fn encode(&mut self, item: String, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        unimplemented!()
     }
 }
 #[cfg(test)]
@@ -129,8 +149,8 @@ mod tests {
 
     #[test]
     fn test_decode() {
-        let mut decoder = NatsMessageDecoder {
-            state: ParseState::OpStart
+        let mut decoder = NatsMessageCodec {
+            state: ParseState::OpStart,
         };
         let mut buf = BytesMut::from("aa".as_bytes());
         assert!(decoder.decode(&mut buf).unwrap().is_none());
@@ -153,6 +173,3 @@ mod tests {
         println!("{:?}", result);
     }
 }
-
-
-
