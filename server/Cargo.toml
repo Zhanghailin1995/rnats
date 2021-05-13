@@ -12,3 +12,4 @@ tokio-util = { version = "0.6", features = ["codec"] }
 bytes = "1"
 rand = "0"
 subslice = "0.2.2"
+thiserror = "1"

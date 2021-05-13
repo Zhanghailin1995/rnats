@@ -17,9 +17,9 @@ impl FooCopy {
     }
 }
 
-fn is_FnMut<F: FnMut()>(_closure: &F) {}
+fn is_fn_mut<F: FnMut()>(_closure: &F) {}
 
-fn is_Copy<F: Copy>(_closure: &F) {}
+fn is_copy<F: Copy>(_closure: &F) {}
 
 
 fn main() {
@@ -57,10 +57,10 @@ fn main() {
         println!("foo_copy in closure(without move): {}", foo_copy.get());
     };
 
-    is_FnMut(&c_with_move);
-    is_Copy(&c_with_move);
+    is_fn_mut(&c_with_move);
+    is_copy(&c_with_move);
 
-    is_FnMut(&c_without_move);
+    is_fn_mut(&c_without_move);
     //is_Copy(&c_without_move); // Error
 
     c_without_move();
