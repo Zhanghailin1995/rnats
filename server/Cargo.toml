@@ -12,9 +12,12 @@ path = "src/bin/server.rs"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.6", features = ["codec"] }
+tokio-stream = "0.1"
 bytes = "1"
 rand = "0"
 subslice = "0.2.2"
 thiserror = "1"
 log = "0.4"
 futures-util = { version = "0.3", features = ["sink", "async-await"] }
+env_logger = "0.8"
+async-stream = "0.3"

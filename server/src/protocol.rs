@@ -1,5 +1,9 @@
-use crate::errors::Error;
+use crate::{
+    connection::Connection, errors::Error, publish::Publish, server::Db, subscribe::Subscribe,
+};
 use bytes::{Buf, Bytes, BytesMut};
+
+use log::info;
 use subslice::SubsliceExt;
 use tokio_util::codec::{Decoder, Encoder};
 
@@ -22,33 +26,21 @@ pub enum ParseState {
     OpPub,
 }
 
-// #[derive(Debug, Clone, PartialEq)]
-// pub struct NatsMsg {
-//     pub subject: String,
-//     pub sid: usize,
-//     pub size: usize,
-//     pub payload: Bytes,
-// }
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct NatsPub {
-    pub subject: String,
-    pub size: usize,
-    pub payload: Bytes,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct NatsSub {
-    pub subject: String,
-    pub sid: usize,
-    pub queue: Option<String>,
-}
-
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum NatsProtocol {
     // Msg(NatsMsg),
-    Sub(NatsSub),
-    Pub(NatsPub),
+    Sub(Subscribe),
+    Pub(Publish),
+}
+
+impl NatsProtocol {
+    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> Result<(), Error> {
+        use NatsProtocol::*;
+        match self {
+            Sub(s) => s.apply(db, dst).await,
+            Pub(p) => p.apply(db, dst).await,
+        }
+    }
 }
 
 impl Decoder for NatsMessageCodec {
@@ -57,7 +49,7 @@ impl Decoder for NatsMessageCodec {
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         use ParseState::*;
-        println!("recv msg");
+        info!("recv msg {:?}", std::str::from_utf8(&src[..]));
         loop {
             match self.state {
                 OpStart => {
@@ -76,31 +68,17 @@ impl Decoder for NatsMessageCodec {
                         Some(end) => end,
                         None => return Ok(None),
                     };
-                    // SUB <subject> <sid>\r\n
-                    // SUB <subject> <queue> <sid>
+                    // SUB <subject> [subjects...]\r\n
 
-                    let mut parts = src[..line_end].split(|c| c == &b' ');
+                    let parts = src[..line_end].split(|c| c == &b' ');
+                    let mut channels = Vec::new();
                     // first arg is always subject
-                    let subject =
-                        std::str::from_utf8(parts.next().ok_or_else(|| Error::ProtocolError)?)?
-                            .to_string();
-                    let mut queue = Option::<String>::None;
-                    let sid;
-                    let next_arg = parts.next().ok_or_else(|| Error::ProtocolError)?;
-                    if let Some(arg) = parts.next() {
-                        queue = Some(std::str::from_utf8(next_arg)?.to_string());
-                        sid = std::str::from_utf8(arg)?.parse::<usize>()?;
-                    } else {
-                        sid = std::str::from_utf8(next_arg)?.parse::<usize>()?;
+                    for i in parts.into_iter() {
+                        channels.push(std::str::from_utf8(i)?.to_string())
                     }
-                    // skip body and \r\n
                     self.state = OpStart;
                     src.advance(line_end + 2);
-                    return Ok(Some(NatsProtocol::Sub(NatsSub {
-                        subject,
-                        sid,
-                        queue,
-                    })));
+                    return Ok(Some(NatsProtocol::Sub(Subscribe { channels })));
                 }
                 OpPub => {
                     // PUB <subject> <len>\r\n<message>\r\n
@@ -110,7 +88,7 @@ impl Decoder for NatsMessageCodec {
                         return Ok(None);
                     };
                     let mut parts = src[..line_end].split(|c| c == &b' ');
-                    let subject =
+                    let channel =
                         std::str::from_utf8(parts.next().ok_or_else(|| Error::ProtocolError)?)?
                             .to_string();
                     let size =
@@ -121,10 +99,10 @@ impl Decoder for NatsMessageCodec {
                         let message = src.split_to(size);
                         src.advance(2);
                         self.state = OpStart;
-                        return Ok(Some(NatsProtocol::Pub(NatsPub {
-                            subject,
+                        return Ok(Some(NatsProtocol::Pub(Publish {
+                            channel,
                             size,
-                            payload: message.freeze(),
+                            message: message.freeze(),
                         })));
                     } else {
                         return Ok(None);
@@ -135,11 +113,19 @@ impl Decoder for NatsMessageCodec {
     }
 }
 
-impl Encoder<String> for NatsMessageCodec {
+impl Encoder<(String, Bytes)> for NatsMessageCodec {
     type Error = Error;
-
-    fn encode(&mut self, item: String, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        unimplemented!()
+    // MESSAGE
+    // MSG <subject> <size>\r\n
+    // <message>\r\n
+    fn encode(&mut self, item: (String, Bytes), dst: &mut BytesMut) -> Result<(), Self::Error> {
+        // unimplemented!()
+        dst.extend_from_slice(b"MSG ");
+        dst.extend_from_slice(item.0.as_bytes());
+        dst.extend_from_slice(b" ");
+        dst.extend_from_slice(format!(" {}\r\n", item.1.len()).as_bytes());
+        dst.extend_from_slice(item.1.as_ref());
+        Ok(())
     }
 }
 #[cfg(test)]
